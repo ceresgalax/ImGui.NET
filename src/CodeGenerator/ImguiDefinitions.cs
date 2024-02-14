@@ -13,6 +13,9 @@ namespace CodeGenerator
     {
         public EnumDefinition[] Enums;
         public TypeDefinition[] Types;
+        public TypeDefinition[] TemplatedStructs;
+        public Dictionary<string, HashSet<string>> TemplatesDone;
+        public Dictionary<string, string> TemplateTypenames;
         public FunctionDefinition[] Functions;
         public Dictionary<string, MethodVariant> Variants;
 
@@ -98,6 +101,62 @@ namespace CodeGenerator
                 return new TypeDefinition(name, fields);
             }).Where(x => x != null).ToArray();
 
+            TemplatedStructs = typesJson["templated_structs"].Select(jt => 
+            {
+                JProperty jp = (JProperty)jt;
+                string name = jp.Name;
+                if (typeLocations?[jp.Name]?.Value<string>().Contains("internal") ?? false) {
+                    return null;
+                }
+                TypeReference[] fields = jp.Values().Select(v =>
+                {
+                    if (v["type"].ToString().Contains("static")) { return null; }
+                    return new TypeReference(
+                        v["name"].ToString(),
+                        v["type"].ToString(),
+                        GetInt(v, "size"),
+                        v["template_type"]?.ToString(),
+                        Enums);
+                }).Where(tr => tr != null).ToArray();
+                return new TypeDefinition(name, fields);
+            }).Where(x => x != null).ToArray();
+
+            TemplatesDone = typesJson["templates_done"]
+                .Select(jt => 
+                {
+                    JProperty jp = (JProperty)jt;
+                    string name = jp.Name;
+                    if (typeLocations?[jp.Name]?.Value<string>().Contains("internal") ?? false) {
+                        return (null, null);
+                    }
+                    HashSet<string> templateArgs = jp.Values()
+                        .Select(v => {
+                            JProperty jp = (JProperty)v;
+                            string name = jp.Name;
+                            bool val = jp.Value.ToObject<bool>();
+                            return val ? name : null;
+                        })
+                        .Where(x => x != null)
+                        .ToHashSet();
+
+                    return (name, templateArgs);
+                })
+                .Where(x => x.name != null)
+                .ToDictionary(x => x.name, x => x.templateArgs);
+            
+            TemplateTypenames = typesJson["typenames"]
+                .Select(jt => 
+                {
+                    JProperty jp = (JProperty)jt;
+                    string name = jp.Name;
+                    if (typeLocations?[jp.Name]?.Value<string>().Contains("internal") ?? false) {
+                        return (null, null);
+                    }
+                    return (name, jp.Value.ToObject<string>());
+                })
+                .Where(x => x.name != null)
+                .ToDictionary(x => x.name, x => x.Item2);
+            
             Functions = functionsJson.Children().Select(jt =>
             {
                 JProperty jp = (JProperty)jt;

@@ -1,13 +1,11 @@
-﻿using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
-using System.Threading.Tasks;
+using JsonSerializer = System.Text.Json.JsonSerializer;
 
 namespace CodeGenerator
 {
@@ -40,43 +38,75 @@ namespace CodeGenerator
                 libraryName = "cimgui";
             }
 
-            string projectNamespace = libraryName switch
-            {
-                "cimgui" => "ImGuiNET",
-                "cimplot" => "ImPlotNET",
-                "cimnodes" => "imnodesNET",
-                "cimguizmo" => "ImGuizmoNET",
-                _ => throw new NotImplementedException($"Library \"{libraryName}\" is not supported.")
-            };
+            
 
-            bool referencesImGui = libraryName switch
-            {
-                "cimgui" => false,
-                "cimplot" => true,
-                "cimnodes" => true,
-                "cimguizmo" => true,
-                _ => throw new NotImplementedException($"Library \"{libraryName}\" is not supported.")
-            };
-
-            string classPrefix = libraryName switch
-            {
-                "cimgui" => "ImGui",
-                "cimplot" => "ImPlot",
-                "cimnodes" => "imnodes",
-                "cimguizmo" => "ImGuizmo",
-                _ => throw new NotImplementedException($"Library \"{libraryName}\" is not supported.")
-            };
-
-            string dllName = libraryName switch
-            {
-                "cimgui" => "cimgui",
-                "cimplot" => "cimplot",
-                "cimnodes" => "cimnodes",
-                "cimguizmo" => "cimguizmo",
-                _ => throw new NotImplementedException()
-            };
+            // string projectNamespace = libraryName switch
+            // {
+            //     "cimgui" => "ImGuiNET",
+            //     "cimplot" => "ImPlotNET",
+            //     "cimnodes" => "imnodesNET",
+            //     "cimguizmo" => "ImGuizmoNET",
+            //     _ => throw new NotImplementedException($"Library \"{libraryName}\" is not supported.")
+            // };
+            //
+            // bool referencesImGui = libraryName switch
+            // {
+            //     "cimgui" => false,
+            //     "cimplot" => true,
+            //     "cimnodes" => true,
+            //     "cimguizmo" => true,
+            //     _ => throw new NotImplementedException($"Library \"{libraryName}\" is not supported.")
+            // };
+            //
+            // string classPrefix = libraryName switch
+            // {
+            //     "cimgui" => "ImGui",
+            //     "cimplot" => "ImPlot",
+            //     "cimnodes" => "imnodes",
+            //     "cimguizmo" => "ImGuizmo",
+            //     _ => throw new NotImplementedException($"Library \"{libraryName}\" is not supported.")
+            // };
+            //
+            // string dllName = libraryName switch
+            // {
+            //     "cimgui" => "cimgui",
+            //     "cimplot" => "cimplot",
+            //     "cimnodes" => "cimnodes",
+            //     "cimguizmo" => "cimguizmo",
+            //     _ => throw new NotImplementedException()
+            // };
+            
+            JsonSerializerOptions settingsJsonOptions = new();
+            settingsJsonOptions.IncludeFields = true;
             
             string definitionsPath = Path.Combine(AppContext.BaseDirectory, "definitions", libraryName);
+            string settingsPath = Path.Combine(definitionsPath, "settings.json");
+            if (!File.Exists(settingsPath)) 
+            {
+                Console.Error.WriteLine($"Cannot find {settingsPath}");
+                Environment.Exit(1);
+                return;
+            }
+            
+            TargetSettings targetSettings;
+            
+            try 
+            {
+                using FileStream stream = File.OpenRead(settingsPath);
+                targetSettings = JsonSerializer.Deserialize<TargetSettings>(stream, settingsJsonOptions)!;
+            }
+            catch (Exception e) 
+            {
+                Console.Error.WriteLine($"Error while parsing {settingsPath}: {e}");
+                Environment.Exit(1);
+                return;
+            }
+            
+            string projectNamespace = targetSettings.ProjectNamespace;
+            bool referencesImGui = targetSettings.ReferencesImGui;
+            string classPrefix = targetSettings.ClassPrefix;
+            string dllName = targetSettings.DllName;
+            
             var defs = new ImguiDefinitions();
             defs.LoadFrom(definitionsPath);
 
@@ -103,177 +133,220 @@ namespace CodeGenerator
                 }
             }
 
+            foreach (TypeDefinition td in defs.Types) {
+                
+            }
+
+            void WriteType(CSharpCodeWriter writer, TypeDefinition td, string[] templateParameters)
+            {
+                writer.Using("System");
+                writer.Using("System.Numerics");
+                writer.Using("System.Runtime.CompilerServices");
+                writer.Using("System.Text");
+                if (referencesImGui)
+                {
+                    writer.Using("ImGuiNET");
+                }
+                writer.WriteLine(string.Empty);
+                writer.PushBlock($"namespace {projectNamespace}");
+
+                string genericString = "";
+                if (templateParameters.Length > 0) 
+                {
+                    genericString = $"<{string.Join(", ", templateParameters)}>";
+                }
+
+                string structName = $"{td.Name}{genericString}";
+
+                writer.PushBlock($"public unsafe partial struct {structName}");
+                foreach (TypeReference field in td.Fields)
+                {
+                    string typeStr = GetTypeString(field.Type, field.IsFunctionPointer);
+
+                    if (field.ArraySize != 0)
+                    {
+                        if (TypeInfo.LegalFixedTypes.Contains(typeStr))
+                        {
+                            writer.WriteLine($"public fixed {typeStr} {field.Name}[{field.ArraySize}];");
+                        }
+                        else
+                        {
+                            for (int i = 0; i < field.ArraySize; i++)
+                            {
+                                writer.WriteLine($"public {typeStr} {field.Name}_{i};");
+                            }
+                        }
+                    }
+                    else
+                    {
+                        writer.WriteLine($"public {typeStr} {field.Name};");
+                    }
+                }
+                writer.PopBlock();
+
+                string ptrTypeName = td.Name + "Ptr" + genericString;
+                writer.PushBlock($"public unsafe partial struct {ptrTypeName}");
+                writer.WriteLine($"public {structName}* NativePtr {{ get; }}");
+                writer.WriteLine($"public {ptrTypeName}({structName}* nativePtr) => NativePtr = nativePtr;");
+                writer.WriteLine($"public {ptrTypeName}(IntPtr nativePtr) => NativePtr = ({structName}*)nativePtr;");
+                writer.WriteLine($"public static implicit operator {ptrTypeName}({structName}* nativePtr) => new {ptrTypeName}(nativePtr);");
+                writer.WriteLine($"public static implicit operator {structName}* ({ptrTypeName} wrappedPtr) => wrappedPtr.NativePtr;");
+                writer.WriteLine($"public static implicit operator {ptrTypeName}(IntPtr nativePtr) => new {ptrTypeName}(nativePtr);");
+
+                foreach (TypeReference field in td.Fields)
+                {
+                    string typeStr = GetTypeString(field.Type, field.IsFunctionPointer);
+                    string rawType = typeStr;
+
+                    if (TypeInfo.WellKnownFieldReplacements.TryGetValue(field.Type, out string wellKnownFieldType))
+                    {
+                        typeStr = wellKnownFieldType;
+                    }
+
+                    if (field.ArraySize != 0)
+                    {
+                        string addrTarget = TypeInfo.LegalFixedTypes.Contains(rawType) ? $"NativePtr->{field.Name}" : $"&NativePtr->{field.Name}_0";
+                        writer.WriteLine($"public RangeAccessor<{typeStr}> {field.Name} => new RangeAccessor<{typeStr}>({addrTarget}, {field.ArraySize});");
+                    }
+                    else if (typeStr.Contains("ImVector"))
+                    {
+                        string vectorElementType = GetTypeString(field.TemplateType, false);
+
+                        if (TypeInfo.WellKnownTypes.TryGetValue(vectorElementType, out string wellKnown))
+                        {
+                            vectorElementType = wellKnown;
+                        }
+
+                        if (GetWrappedType(vectorElementType + "*", out string wrappedElementType))
+                        {
+                            writer.WriteLine($"public ImPtrVector<{wrappedElementType}> {field.Name} => new ImPtrVector<{wrappedElementType}>(NativePtr->{field.Name}, Unsafe.SizeOf<{vectorElementType}>());");
+                        }
+                        else
+                        {
+                            if (GetWrappedType(vectorElementType, out wrappedElementType))
+                            {
+                                vectorElementType = wrappedElementType;
+                            }
+                            writer.WriteLine($"public ImVector<{vectorElementType}> {field.Name} => new ImVector<{vectorElementType}>(NativePtr->{field.Name});");
+                        }
+                    }
+                    else
+                    {
+                        if (typeStr.Contains("*") && !typeStr.Contains("ImVector"))
+                        {
+                            if (GetWrappedType(typeStr, out string wrappedTypeName))
+                            {
+                                writer.WriteLine($"public {wrappedTypeName} {field.Name} => new {wrappedTypeName}(NativePtr->{field.Name});");
+                            }
+                            else if (typeStr == "byte*" && IsStringFieldName(field.Name))
+                            {
+                                writer.WriteLine($"public NullTerminatedString {field.Name} => new NullTerminatedString(NativePtr->{field.Name});");
+                            }
+                            else
+                            {
+                                writer.WriteLine($"public IntPtr {field.Name} {{ get => (IntPtr)NativePtr->{field.Name}; set => NativePtr->{field.Name} = ({typeStr})value; }}");
+                            }
+                        }
+                        else
+                        {
+                            writer.WriteLine($"public ref {typeStr} {field.Name} => ref Unsafe.AsRef<{typeStr}>(&NativePtr->{field.Name});");
+                        }
+                    }
+                }
+
+                foreach (FunctionDefinition fd in defs.Functions)
+                {
+                    foreach (OverloadDefinition overload in fd.Overloads)
+                    {
+                        if (overload.StructName != td.Name)
+                        {
+                            continue;
+                        }
+
+                        if (overload.IsConstructor)
+                        {
+                            // TODO: Emit a static function on the type that invokes the native constructor.
+                            // Also, add a "Dispose" function or similar.
+                            continue;
+                        }
+
+                        string exportedName = overload.ExportedName;
+                        if (exportedName.StartsWith("ig"))
+                        {
+                            exportedName = exportedName.Substring(2, exportedName.Length - 2);
+                        }
+                        if (exportedName.Contains("~")) { continue; }
+                        if (overload.Parameters.Any(tr => tr.Type.Contains('('))) { continue; } // TODO: Parse function pointer parameters.
+
+                        bool hasVaList = false;
+                        for (int i = 0; i < overload.Parameters.Length; i++)
+                        {
+                            TypeReference p = overload.Parameters[i];
+                            string paramType = GetTypeString(p.Type, p.IsFunctionPointer);
+                            if (p.Name == "...") { continue; }
+
+                            if (paramType == "va_list")
+                            {
+                                hasVaList = true;
+                                break;
+                            }
+                        }
+                        if (hasVaList) { continue; }
+
+                        KeyValuePair<string, string>[] orderedDefaults = overload.DefaultValues.OrderByDescending(
+                            kvp => GetIndex(overload.Parameters, kvp.Key)).ToArray();
+
+                        for (int i = overload.DefaultValues.Count; i >= 0; i--)
+                        {
+                            Dictionary<string, string> defaults = new Dictionary<string, string>();
+                            for (int j = 0; j < i; j++)
+                            {
+                                defaults.Add(orderedDefaults[j].Key, orderedDefaults[j].Value);
+                            }
+                            EmitOverload(writer, overload, defaults, "NativePtr", classPrefix);
+                        }
+                    }
+                }
+                writer.PopBlock();
+
+                writer.PopBlock();
+            }
+            
             foreach (TypeDefinition td in defs.Types)
             {
                 if (TypeInfo.CustomDefinedTypes.Contains(td.Name)) { continue; }
 
-                using (CSharpCodeWriter writer = new CSharpCodeWriter(Path.Combine(outputPath, td.Name + ".gen.cs")))
+                using (CSharpCodeWriter writer = new CSharpCodeWriter(Path.Combine(outputPath, td.Name + ".gen.cs"))) 
                 {
-                    writer.Using("System");
-                    writer.Using("System.Numerics");
-                    writer.Using("System.Runtime.CompilerServices");
-                    writer.Using("System.Text");
-                    if (referencesImGui)
-                    {
-                        writer.Using("ImGuiNET");
-                    }
-                    writer.WriteLine(string.Empty);
-                    writer.PushBlock($"namespace {projectNamespace}");
-
-                    writer.PushBlock($"public unsafe partial struct {td.Name}");
-                    foreach (TypeReference field in td.Fields)
-                    {
-                        string typeStr = GetTypeString(field.Type, field.IsFunctionPointer);
-
-                        if (field.ArraySize != 0)
-                        {
-                            if (TypeInfo.LegalFixedTypes.Contains(typeStr))
-                            {
-                                writer.WriteLine($"public fixed {typeStr} {field.Name}[{field.ArraySize}];");
-                            }
-                            else
-                            {
-                                for (int i = 0; i < field.ArraySize; i++)
-                                {
-                                    writer.WriteLine($"public {typeStr} {field.Name}_{i};");
-                                }
-                            }
-                        }
-                        else
-                        {
-                            writer.WriteLine($"public {typeStr} {field.Name};");
-                        }
-                    }
-                    writer.PopBlock();
-
-                    string ptrTypeName = td.Name + "Ptr";
-                    writer.PushBlock($"public unsafe partial struct {ptrTypeName}");
-                    writer.WriteLine($"public {td.Name}* NativePtr {{ get; }}");
-                    writer.WriteLine($"public {ptrTypeName}({td.Name}* nativePtr) => NativePtr = nativePtr;");
-                    writer.WriteLine($"public {ptrTypeName}(IntPtr nativePtr) => NativePtr = ({td.Name}*)nativePtr;");
-                    writer.WriteLine($"public static implicit operator {ptrTypeName}({td.Name}* nativePtr) => new {ptrTypeName}(nativePtr);");
-                    writer.WriteLine($"public static implicit operator {td.Name}* ({ptrTypeName} wrappedPtr) => wrappedPtr.NativePtr;");
-                    writer.WriteLine($"public static implicit operator {ptrTypeName}(IntPtr nativePtr) => new {ptrTypeName}(nativePtr);");
-
-                    foreach (TypeReference field in td.Fields)
-                    {
-                        string typeStr = GetTypeString(field.Type, field.IsFunctionPointer);
-                        string rawType = typeStr;
-
-                        if (TypeInfo.WellKnownFieldReplacements.TryGetValue(field.Type, out string wellKnownFieldType))
-                        {
-                            typeStr = wellKnownFieldType;
-                        }
-
-                        if (field.ArraySize != 0)
-                        {
-                            string addrTarget = TypeInfo.LegalFixedTypes.Contains(rawType) ? $"NativePtr->{field.Name}" : $"&NativePtr->{field.Name}_0";
-                            writer.WriteLine($"public RangeAccessor<{typeStr}> {field.Name} => new RangeAccessor<{typeStr}>({addrTarget}, {field.ArraySize});");
-                        }
-                        else if (typeStr.Contains("ImVector"))
-                        {
-                            string vectorElementType = GetTypeString(field.TemplateType, false);
-
-                            if (TypeInfo.WellKnownTypes.TryGetValue(vectorElementType, out string wellKnown))
-                            {
-                                vectorElementType = wellKnown;
-                            }
-
-                            if (GetWrappedType(vectorElementType + "*", out string wrappedElementType))
-                            {
-                                writer.WriteLine($"public ImPtrVector<{wrappedElementType}> {field.Name} => new ImPtrVector<{wrappedElementType}>(NativePtr->{field.Name}, Unsafe.SizeOf<{vectorElementType}>());");
-                            }
-                            else
-                            {
-                                if (GetWrappedType(vectorElementType, out wrappedElementType))
-                                {
-                                    vectorElementType = wrappedElementType;
-                                }
-                                writer.WriteLine($"public ImVector<{vectorElementType}> {field.Name} => new ImVector<{vectorElementType}>(NativePtr->{field.Name});");
-                            }
-                        }
-                        else
-                        {
-                            if (typeStr.Contains("*") && !typeStr.Contains("ImVector"))
-                            {
-                                if (GetWrappedType(typeStr, out string wrappedTypeName))
-                                {
-                                    writer.WriteLine($"public {wrappedTypeName} {field.Name} => new {wrappedTypeName}(NativePtr->{field.Name});");
-                                }
-                                else if (typeStr == "byte*" && IsStringFieldName(field.Name))
-                                {
-                                    writer.WriteLine($"public NullTerminatedString {field.Name} => new NullTerminatedString(NativePtr->{field.Name});");
-                                }
-                                else
-                                {
-                                    writer.WriteLine($"public IntPtr {field.Name} {{ get => (IntPtr)NativePtr->{field.Name}; set => NativePtr->{field.Name} = ({typeStr})value; }}");
-                                }
-                            }
-                            else
-                            {
-                                writer.WriteLine($"public ref {typeStr} {field.Name} => ref Unsafe.AsRef<{typeStr}>(&NativePtr->{field.Name});");
-                            }
-                        }
-                    }
-
-                    foreach (FunctionDefinition fd in defs.Functions)
-                    {
-                        foreach (OverloadDefinition overload in fd.Overloads)
-                        {
-                            if (overload.StructName != td.Name)
-                            {
-                                continue;
-                            }
-
-                            if (overload.IsConstructor)
-                            {
-                                // TODO: Emit a static function on the type that invokes the native constructor.
-                                // Also, add a "Dispose" function or similar.
-                                continue;
-                            }
-
-                            string exportedName = overload.ExportedName;
-                            if (exportedName.StartsWith("ig"))
-                            {
-                                exportedName = exportedName.Substring(2, exportedName.Length - 2);
-                            }
-                            if (exportedName.Contains("~")) { continue; }
-                            if (overload.Parameters.Any(tr => tr.Type.Contains('('))) { continue; } // TODO: Parse function pointer parameters.
-
-                            bool hasVaList = false;
-                            for (int i = 0; i < overload.Parameters.Length; i++)
-                            {
-                                TypeReference p = overload.Parameters[i];
-                                string paramType = GetTypeString(p.Type, p.IsFunctionPointer);
-                                if (p.Name == "...") { continue; }
-
-                                if (paramType == "va_list")
-                                {
-                                    hasVaList = true;
-                                    break;
-                                }
-                            }
-                            if (hasVaList) { continue; }
-
-                            KeyValuePair<string, string>[] orderedDefaults = overload.DefaultValues.OrderByDescending(
-                                kvp => GetIndex(overload.Parameters, kvp.Key)).ToArray();
-
-                            for (int i = overload.DefaultValues.Count; i >= 0; i--)
-                            {
-                                Dictionary<string, string> defaults = new Dictionary<string, string>();
-                                for (int j = 0; j < i; j++)
-                                {
-                                    defaults.Add(orderedDefaults[j].Key, orderedDefaults[j].Value);
-                                }
-                                EmitOverload(writer, overload, defaults, "NativePtr", classPrefix);
-                            }
-                        }
-                    }
-                    writer.PopBlock();
-
-                    writer.PopBlock();
+                    WriteType(writer, td, Array.Empty<string>());
                 }
             }
+            
+            // foreach (TypeDefinition td in defs.TemplatedStructs)
+            // {
+            //     if (TypeInfo.CustomDefinedTypes.Contains(td.Name)) { continue; }
+            //
+            //     HashSet<string> templatesDone = defs.TemplatesDone[td.Name];
+            //     
+            //     string[] templateParams = defs.TemplateTypenames[td.Name].Split(',')
+            //         .Select(x => x.Trim())
+            //         .ToArray();
+            //
+            //     foreach (string template in templatesDone) 
+            //     {
+            //         string[] templateArgs = template.Split(',').Select(x => x.Trim()).ToArray();
+            //         Debug.Assert(templateArgs.Length == templateParams.Length);
+            //
+            //         templateParams.Zip(templateArgs).ToDictionary(x => x.First, x => x.Second);
+            //
+            //     }
+            //     
+            //
+            //     using (CSharpCodeWriter writer = new CSharpCodeWriter(Path.Combine(outputPath, td.Name + ".gen.cs"))) 
+            //     {
+            //         WriteType(writer, td, templateParams);
+            //     }
+            // }
 
             using (CSharpCodeWriter writer = new CSharpCodeWriter(Path.Combine(outputPath, $"{classPrefix}Native.gen.cs")))
             {
