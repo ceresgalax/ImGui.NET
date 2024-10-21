@@ -5,7 +5,7 @@ using System.Text;
 
 // NOTE:
 // This is a direct copy from ImGui.Manual.cs with all string parameters (not ref string) changed to ReadOnlySpan<char>.
-// This is far from ideal right now, maybe we could update the generator to do this for us.
+// TODO: This is far from ideal right now, maybe we could update the generator to do this for us.
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP2_1_OR_GREATER
 namespace ImGuiNET
 {
@@ -479,6 +479,36 @@ namespace ImGuiNET
         public static bool MenuItem(ReadOnlySpan<char> label, bool enabled)
         {
             return MenuItem(label, string.Empty, false, enabled);
+        }
+
+        public static bool BeginPopupModal(ReadOnlySpan<char> name, ImGuiWindowFlags flags)
+        {
+            byte* native_name;
+            int name_byteCount = 0;
+            if (name != null)
+            {
+                name_byteCount = Encoding.UTF8.GetByteCount(name);
+                if (name_byteCount > Util.StackAllocationSizeLimit)
+                {
+                    native_name = Util.Allocate(name_byteCount + 1);
+                }
+                else
+                {
+                    byte* native_name_stackBytes = stackalloc byte[name_byteCount + 1];
+                    native_name = native_name_stackBytes;
+                }
+                int native_name_offset = Util.GetUtf8(name, native_name, name_byteCount);
+                native_name[native_name_offset] = 0;
+            }
+            else { native_name = null; }
+            byte* native_p_open = null;
+            byte ret = ImGuiNative.igBeginPopupModal(native_name, native_p_open, flags);
+            if (name_byteCount > Util.StackAllocationSizeLimit)
+            {
+                Util.Free(native_name);
+            }
+
+            return ret != 0;
         }
     }
 }

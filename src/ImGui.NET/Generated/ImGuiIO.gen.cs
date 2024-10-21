@@ -30,6 +30,7 @@ namespace ImGuiNET
         public byte ConfigViewportsNoDefaultParent;
         public byte MouseDrawCursor;
         public byte ConfigMacOSXBehaviors;
+        public byte ConfigNavSwapGamepadButtons;
         public byte ConfigInputTrickleEventQueue;
         public byte ConfigInputTextCursorBlink;
         public byte ConfigInputTextEnterKeepActive;
@@ -55,7 +56,9 @@ namespace ImGuiNET
         public IntPtr GetClipboardTextFn;
         public IntPtr SetClipboardTextFn;
         public void* ClipboardUserData;
-        public IntPtr SetPlatformImeDataFn;
+        public IntPtr PlatformOpenInShellFn;
+        public void* PlatformOpenInShellUserData;
+        public IntPtr PlatformSetImeDataFn;
         public ushort PlatformLocaleDecimalPoint;
         public byte WantCaptureMouse;
         public byte WantCaptureKeyboard;
@@ -70,7 +73,6 @@ namespace ImGuiNET
         public int MetricsRenderWindows;
         public int MetricsActiveWindows;
         public Vector2 MouseDelta;
-        public void* _UnusedPadding;
         public IntPtr Ctx;
         public Vector2 MousePos;
         public fixed byte MouseDown[5];
@@ -253,6 +255,7 @@ namespace ImGuiNET
         public fixed byte MouseDownOwned[5];
         public fixed byte MouseDownOwnedUnlessPopupClose[5];
         public byte MouseWheelRequestAxisSwap;
+        public byte MouseCtrlLeftAsRightClick;
         public fixed float MouseDownDuration[5];
         public fixed float MouseDownDurationPrev[5];
         public Vector2 MouseDragMaxDistanceAbs_0;
@@ -300,6 +303,7 @@ namespace ImGuiNET
         public ref bool ConfigViewportsNoDefaultParent => ref Unsafe.AsRef<bool>(&NativePtr->ConfigViewportsNoDefaultParent);
         public ref bool MouseDrawCursor => ref Unsafe.AsRef<bool>(&NativePtr->MouseDrawCursor);
         public ref bool ConfigMacOSXBehaviors => ref Unsafe.AsRef<bool>(&NativePtr->ConfigMacOSXBehaviors);
+        public ref bool ConfigNavSwapGamepadButtons => ref Unsafe.AsRef<bool>(&NativePtr->ConfigNavSwapGamepadButtons);
         public ref bool ConfigInputTrickleEventQueue => ref Unsafe.AsRef<bool>(&NativePtr->ConfigInputTrickleEventQueue);
         public ref bool ConfigInputTextCursorBlink => ref Unsafe.AsRef<bool>(&NativePtr->ConfigInputTextCursorBlink);
         public ref bool ConfigInputTextEnterKeepActive => ref Unsafe.AsRef<bool>(&NativePtr->ConfigInputTextEnterKeepActive);
@@ -325,7 +329,9 @@ namespace ImGuiNET
         public ref IntPtr GetClipboardTextFn => ref Unsafe.AsRef<IntPtr>(&NativePtr->GetClipboardTextFn);
         public ref IntPtr SetClipboardTextFn => ref Unsafe.AsRef<IntPtr>(&NativePtr->SetClipboardTextFn);
         public IntPtr ClipboardUserData { get => (IntPtr)NativePtr->ClipboardUserData; set => NativePtr->ClipboardUserData = (void*)value; }
-        public ref IntPtr SetPlatformImeDataFn => ref Unsafe.AsRef<IntPtr>(&NativePtr->SetPlatformImeDataFn);
+        public ref IntPtr PlatformOpenInShellFn => ref Unsafe.AsRef<IntPtr>(&NativePtr->PlatformOpenInShellFn);
+        public IntPtr PlatformOpenInShellUserData { get => (IntPtr)NativePtr->PlatformOpenInShellUserData; set => NativePtr->PlatformOpenInShellUserData = (void*)value; }
+        public ref IntPtr PlatformSetImeDataFn => ref Unsafe.AsRef<IntPtr>(&NativePtr->PlatformSetImeDataFn);
         public ref ushort PlatformLocaleDecimalPoint => ref Unsafe.AsRef<ushort>(&NativePtr->PlatformLocaleDecimalPoint);
         public ref bool WantCaptureMouse => ref Unsafe.AsRef<bool>(&NativePtr->WantCaptureMouse);
         public ref bool WantCaptureKeyboard => ref Unsafe.AsRef<bool>(&NativePtr->WantCaptureKeyboard);
@@ -340,7 +346,6 @@ namespace ImGuiNET
         public ref int MetricsRenderWindows => ref Unsafe.AsRef<int>(&NativePtr->MetricsRenderWindows);
         public ref int MetricsActiveWindows => ref Unsafe.AsRef<int>(&NativePtr->MetricsActiveWindows);
         public ref Vector2 MouseDelta => ref Unsafe.AsRef<Vector2>(&NativePtr->MouseDelta);
-        public IntPtr _UnusedPadding { get => (IntPtr)NativePtr->_UnusedPadding; set => NativePtr->_UnusedPadding = (void*)value; }
         public ref IntPtr Ctx => ref Unsafe.AsRef<IntPtr>(&NativePtr->Ctx);
         public ref Vector2 MousePos => ref Unsafe.AsRef<Vector2>(&NativePtr->MousePos);
         public RangeAccessor<bool> MouseDown => new RangeAccessor<bool>(NativePtr->MouseDown, 5);
@@ -366,6 +371,7 @@ namespace ImGuiNET
         public RangeAccessor<bool> MouseDownOwned => new RangeAccessor<bool>(NativePtr->MouseDownOwned, 5);
         public RangeAccessor<bool> MouseDownOwnedUnlessPopupClose => new RangeAccessor<bool>(NativePtr->MouseDownOwnedUnlessPopupClose, 5);
         public ref bool MouseWheelRequestAxisSwap => ref Unsafe.AsRef<bool>(&NativePtr->MouseWheelRequestAxisSwap);
+        public ref bool MouseCtrlLeftAsRightClick => ref Unsafe.AsRef<bool>(&NativePtr->MouseCtrlLeftAsRightClick);
         public RangeAccessor<float> MouseDownDuration => new RangeAccessor<float>(NativePtr->MouseDownDuration, 5);
         public RangeAccessor<float> MouseDownDurationPrev => new RangeAccessor<float>(NativePtr->MouseDownDurationPrev, 5);
         public RangeAccessor<Vector2> MouseDragMaxDistanceAbs => new RangeAccessor<Vector2>(&NativePtr->MouseDragMaxDistanceAbs_0, 5);
@@ -482,6 +488,10 @@ namespace ImGuiNET
         public void ClearInputKeys()
         {
             ImGuiNative.ImGuiIO_ClearInputKeys((ImGuiIO*)(NativePtr));
+        }
+        public void ClearInputMouse()
+        {
+            ImGuiNative.ImGuiIO_ClearInputMouse((ImGuiIO*)(NativePtr));
         }
         public void Destroy()
         {
